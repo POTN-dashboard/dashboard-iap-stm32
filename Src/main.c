@@ -28,6 +28,17 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "usbd_customhid.h" //?????????
+#include "flash.h"
+
+
+#define FLASH_ADDR ADDR_FLASH_PAGE_127						//写入页的地址
+
+
+ST_Data FLASH_Data;
+ST_Data *FLASH_DATA = &FLASH_Data;
+
+
+
 extern USBD_HandleTypeDef hUsbDeviceFS; //????USB????
 /* USER CODE END Includes */
 
@@ -43,10 +54,7 @@ extern USBD_HandleTypeDef hUsbDeviceFS; //????USB????
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 uint8_t send_buf[64] = {0};
-
-
-
-unsigned char USB_Recive_Buffer[64] = {0}; //USB????
+uint8_t USB_Recive_Buffer[64] = {0}; //USB????
 
 
 /* USER CODE END PM */
@@ -65,6 +73,11 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/*Variable used for Erase procedure*/
+
+
+
+
 
 /* USER CODE END 0 */
 
@@ -75,10 +88,9 @@ void SystemClock_Config(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	static uint8_t Status = 0;
   /* USER CODE END 1 */
   
-
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -99,30 +111,131 @@ int main(void)
   MX_GPIO_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-
+	
+	FLASH_STRUCT_Init(FLASH_DATA);
+	
   /* USER CODE END 2 */
  
+
+	
 	
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
+		
+		send_buf[0] = UPGRED_READY_PACK;   //初始化完成 通知上位机 升级就绪
+		USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+		send_buf[0] = 0;
 		
 		
-		if(USB_Recive_Buffer[0] != 0){
-			for(int i = 0; i < 64 ; i++){
-				send_buf[i] = USB_Recive_Buffer[i]*2;
-				USB_Recive_Buffer[i] = 0;
+		if(USB_Recive_Buffer[0] != 0 && USB_Recive_Buffer[0] == FLASH_DATA->PACK_NUM){
+			
+			switch (Status){
+				
+				case 0: 																												
+					break;
+				
+				
+				case 1:
+					
+					break;
+			
 			}
-			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
-			HAL_GPIO_TogglePin(GPIOC,GPIO_PIN_13);	
+			
+			
+			
+			if(FLASH_DATA->PACK_NUM != FLASH_DATA->TOTAL_PACK || (FLASH_DATA->TOTAL_BYTE%63) == 0){  //不是最后一包 或最后一包刚好装满
+					for(int i = 1; i < 64 ; i++){
+						FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_END] = USB_Recive_Buffer[i];
+						FLASH_DATA->DATA_8_INDEX_END++;
+						if(FLASH_DATA->DATA_8_INDEX_END >= MAX_round_queue) FLASH_DATA->DATA_8_INDEX_END -= MAX_round_queue;   //循环队列
+						
+						FLASH_DATA->DATA_8_LEN++;
+						
+						USB_Recive_Buffer[i] = 0;								
+					}			
+			}
+			
+			else {																							//最后一包 且 未装满
+				for(int i = 1; i < ((FLASH_DATA->TOTAL_BYTE%63)+1); i++){
+					FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_END] = USB_Recive_Buffer[i];
+					FLASH_DATA->DATA_8_INDEX_END++;
+					if(FLASH_DATA->DATA_8_INDEX_END >= MAX_round_queue) FLASH_DATA->DATA_8_INDEX_END -= MAX_round_queue;    //循环队列
+					FLASH_DATA->DATA_8_LEN++;
+					
+					USB_Recive_Buffer[i] = 0;
+				
+				}	
+			}			
+			transform(FLASH_DATA);					//字节 转换为字 
+			
+			
+		FLASH_DATA->PACK_NUM++;	
 		}
+		if((FLASH_DATA->PACK_NUM-1) == FLASH_DATA->TOTAL_PACK){
+			transform_extra(FLASH_DATA);
+			
+			
+			Flash_WriteData(FLASH_ADDR,FLASH_DATA->DATA_32);
+			DATA32_Init(FLASH_DATA->DATA_32);
+			FLASH_DATA->DATA_32_INDEX = 0;
+			
+			
+			Flash_ReadData(FLASH_ADDR,send_buf,64);
+			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+			HAL_Delay(1000);
+			Flash_ReadData(FLASH_ADDR+64,send_buf,64);
+			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+			HAL_Delay(1000);
+			Flash_ReadData(FLASH_ADDR+128,send_buf,64);
+			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+			HAL_Delay(1000);
+			Flash_ReadData(FLASH_ADDR+128+64,send_buf,64);
+			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+			HAL_Delay(1000);
+			Flash_ReadData(FLASH_ADDR+128+128,send_buf,64);
+			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+			HAL_Delay(1000);
+			Flash_ReadData(FLASH_ADDR+128*2+64,send_buf,64);
+			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));			
+			
+			
+			FLASH_DATA->PACK_NUM = 0x01;	
+		}
+		
+//			if(FLASH_DATA->DATA_32_INDEX == 128/4){
+//				Flash_WriteData(FLASH_ADDR,FLASH_DATA->DATA_32);
+//				DATA32_Init(FLASH_DATA->DATA_32);
+//				FLASH_DATA->DATA_32_INDEX = 0;
+//				
+//				Flash_ReadData(FLASH_ADDR,send_buf,64);
+//				USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+//				HAL_Delay(1000);
+//				Flash_ReadData(FLASH_ADDR+64,send_buf,64);
+//				USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+//			}
 		
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /**
   * @brief System Clock Configuration
