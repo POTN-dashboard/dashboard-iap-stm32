@@ -6,13 +6,14 @@
 static FLASH_EraseInitTypeDef EraseInitStruct;
 uint32_t Address = 0, PAGEError = 0;
 
+extern uint32_t FLASH_ADDR;
 
-//把接受到的 数据 转为小端 存储在 字中  每次转换一页
+//把接受到的 数据 转为小端 存储在 字中  每次转换一页  一页大小为1024字节
 void transform(ST_Data *FLASH_DATA){
 
-	if(FLASH_DATA->DATA_8_LEN >= 128){				
-		for(int i = 0; i < 128/4 ; i++){				
-			FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] = 0;						//STM32是小端模式
+	if(FLASH_DATA->DATA_8_LEN >= FLASH_PAGE_SIZE){				
+		for(int i = 0; i < FLASH_PAGE_SIZE/4 ; i++){				
+			FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] = 0;							//STM32 FLASH 的读写是大端模式
 			FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] += FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_HEAD+3];
 			FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] <<= 8;
 			FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] += FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_HEAD+2];
@@ -23,18 +24,16 @@ void transform(ST_Data *FLASH_DATA){
 			FLASH_DATA->DATA_32_INDEX ++;
 			FLASH_DATA->DATA_8_LEN -= 4;
 			FLASH_DATA->DATA_8_INDEX_HEAD += 4;
-			if(FLASH_DATA->DATA_8_INDEX_HEAD >= MAX_round_queue) FLASH_DATA->DATA_8_INDEX_HEAD -= MAX_round_queue;  //循环队列
-			
-			
-			
+			if(FLASH_DATA->DATA_8_INDEX_HEAD >= MAX_round_queue) FLASH_DATA->DATA_8_INDEX_HEAD -= MAX_round_queue;  //循环队列					
 		}
+		FLASH_DATA->DATA_32_INDEX = 0;
 	}
 }
 
 //把接受到的 数据 转为小端 存储在 字中 转换剩下不足一页的
 void transform_extra(ST_Data *FLASH_DATA){
 	
-	uint32_t extra_byte = (FLASH_DATA->TOTAL_BYTE)%128;          //最后一页有多少个字节
+	uint32_t extra_byte = (FLASH_DATA->TOTAL_BYTE)%FLASH_PAGE_SIZE;          //最后一页有多少个字节
 	
 	while(FLASH_DATA->DATA_8_LEN%4 != 0){			 										//补满 字节数 为4 的整数
 		FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_END] = 0xff;
@@ -44,7 +43,7 @@ void transform_extra(ST_Data *FLASH_DATA){
 	}
 	
 	for(int i = 0; i < extra_byte/4 ; i++){
-		FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] = 0;								//STM32是小端模式
+		FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] = 0;							//STM32 FLASH 的读写是大端模式
 		FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] += FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_HEAD+3];
 		FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] <<= 8;
 		FLASH_DATA->DATA_32[FLASH_DATA->DATA_32_INDEX] += FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_HEAD+2];
@@ -78,12 +77,18 @@ void FLASH_STRUCT_Init(ST_Data *FLASH_DATA){
 	FLASH_DATA->DATA_8_INDEX_HEAD = 0;
 	FLASH_DATA->DATA_8_LEN = 0;
 	
+	FLASH_DATA->PACK_NUM = 1;
+	FLASH_DATA->PACK_NUM_PC = 0;
+	
+	FLASH_DATA->TOTAL_BYTE = 0;
+	FLASH_DATA->TOTAL_PACK = 0;
+	FLASH_DATA->TOTAL_PAGE = 0;
 //-------------------------------------	
-	FLASH_DATA->TOTAL_BYTE = 314;                      //143 128
-	if((FLASH_DATA->TOTAL_BYTE)%63 == 0)
-		FLASH_DATA->TOTAL_PACK = (FLASH_DATA->TOTAL_BYTE)/63;
-	else 
-		FLASH_DATA->TOTAL_PACK = ((FLASH_DATA->TOTAL_BYTE)/63)+1;
+//	FLASH_DATA->TOTAL_BYTE = 314;                   
+//	if((FLASH_DATA->TOTAL_BYTE)%63 == 0)
+//		FLASH_DATA->TOTAL_PACK = (FLASH_DATA->TOTAL_BYTE)/63;
+//	else 
+//		FLASH_DATA->TOTAL_PACK = ((FLASH_DATA->TOTAL_BYTE)/63)+1;
 //-------------------------------------	
 	
 	DATA32_Init(FLASH_DATA->DATA_32);
@@ -91,6 +96,8 @@ void FLASH_STRUCT_Init(ST_Data *FLASH_DATA){
 	for(int i = 0; i < (MAX_round_queue); i++){
 		FLASH_DATA->DATA_8[i] = 0;	
 	}
+	
+	FLASH_ADDR = APP_FLASH_START;
 
 }
 

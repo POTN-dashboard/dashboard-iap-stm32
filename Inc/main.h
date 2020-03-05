@@ -172,13 +172,22 @@ extern "C" {
 #define ADDR_FLASH_PAGE_127   ((uint32_t)0x0801FC00) /* Base @ of Page 127, 1 Kbytes */
 
 /* Exported functions ------------------------------------------------------- */
-	
-	
+
+#define APP_FLASH_START ADDR_FLASH_PAGE_17
+
+#define UPGRED_READY_PACK 0x66     //升级就绪包头
+#define UPGRED_INFORM_PACK 0x77			//升级信息包头
+#define AKC_PACK  0X33							//应答包头
+#define UPGRED_DATA_PACK 0x88				//升级数据包头
+#define UPGRED_STATUS_PACK 0X99			//升级成功（失败）包头
+
+#define YES 0
+#define NO 0x01
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-#define MAX_round_queue (128+63+1)     //循环队列总长度
+#define MAX_round_queue (FLASH_PAGE_SIZE+64+1)     //循环队列总长度
 typedef struct ST_DATA{
 	uint32_t DATA_32[256];										//用来保存写入flash的数据
 	uint32_t DATA_32_INDEX;                    		//用来标志当前 DATA_32的位置
@@ -191,6 +200,11 @@ typedef struct ST_DATA{
 	uint32_t TOTAL_BYTE;                      //升级的程序一共有多少个字节 
 	uint32_t TOTAL_PAGE;											//升级程序一共有多少页 最后一页可能是未满的
 	uint32_t TOTAL_PACK;											//一共要传多少个数据包
+	
+	uint16_t PACK_NUM;												//当前数据包编号
+	uint16_t PACK_NUM_PC;											// PC传来本次数据包的编号
+	
+	uint8_t CHECKSUM;											// 升级程序 的check sum
 }ST_Data;
 
 
