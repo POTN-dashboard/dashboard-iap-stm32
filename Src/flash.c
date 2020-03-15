@@ -178,12 +178,9 @@ void Flash_WriteData(uint32_t WriteAddr,uint32_t *Data){
     while (1)
     {
       /* Make LED2 blink (100ms on, 2s off) to indicate error in Erase operation */
-//      BSP_LED_On(LED2);
 			HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET);	
-      HAL_Delay(100);
-	
-			HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);
-//      BSP_LED_Off(LED2);			
+      HAL_Delay(100);	
+			HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);	
       HAL_Delay(2000);
     }
   }
@@ -207,10 +204,8 @@ void Flash_WriteData(uint32_t WriteAddr,uint32_t *Data){
       while (1)
       {
         /* Make LED2 blink (100ms on, 2s off) to indicate error in Write operation */
-//        BSP_LED_On(LED2);
 				HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET);	
         HAL_Delay(100);
-//        BSP_LED_Off(LED2);
 				HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);	
         HAL_Delay(2000);
       }

@@ -30,7 +30,10 @@
 #include "usbd_customhid.h" //?????????
 #include "flash.h"
 
-
+typedef  void (*pFunction)(void);
+#define ApplicationAddress    (0x8004000)
+pFunction Jump_To_Application;
+uint32_t JumpAddress;
 
 uint32_t FLASH_ADDR = APP_FLASH_START;						//写入页的地址  
 
@@ -115,11 +118,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	
 	FLASH_STRUCT_Init(FLASH_DATA);
-	
-  /* USER CODE END 2 */
- 
 
-	
+  /* USER CODE END 2 */
 	
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -143,95 +143,24 @@ int main(void)
 				
 				case 0:																							//状态0 等待升级信息包 的同时 向上位机发送就绪包
 					if(USB_Recive_Buffer[0]==UPGRED_INFORM_PACK){			//收到升级信息包
-						
-						FLASH_DATA->TOTAL_BYTE = USB_Recive_Buffer[1];				//  本次升级 一共有多少个字节
-						FLASH_DATA->TOTAL_BYTE <<= 8;
-						FLASH_DATA->TOTAL_BYTE += USB_Recive_Buffer[2];					//STM32是小端模式  左移地址变大
-						FLASH_DATA->TOTAL_BYTE <<= 8;
-						FLASH_DATA->TOTAL_BYTE += USB_Recive_Buffer[3];
-						FLASH_DATA->TOTAL_BYTE <<= 8;
-						FLASH_DATA->TOTAL_BYTE += USB_Recive_Buffer[4];					
-						
-						if((FLASH_DATA->TOTAL_BYTE)%61 == 0)												//计算出 一共有多少包 一包有61个字节 装数据
-							FLASH_DATA->TOTAL_PACK = (FLASH_DATA->TOTAL_BYTE)/61;
-						else 
-							FLASH_DATA->TOTAL_PACK = ((FLASH_DATA->TOTAL_BYTE)/61)+1;
-						
-						if((FLASH_DATA->TOTAL_BYTE)%1024 == 0)											// 计算出一共有多少页  STM32F1 一页有1024个字节
-							FLASH_DATA->TOTAL_PAGE = FLASH_DATA->TOTAL_BYTE/1024;
-						else
-							FLASH_DATA->TOTAL_PAGE = (FLASH_DATA->TOTAL_BYTE/1024)+1;
-						
-						
-						FLASH_DATA->CHECKSUM = USB_Recive_Buffer[5];							//校验和						
-						
-						send_buf[0] = AKC_PACK;
-						if(FLASH_DATA->TOTAL_BYTE != 0 && FLASH_DATA->TOTAL_BYTE < 65535){						//总字节数 不能等于0 不能大于 芯片可用flash
-							send_buf[1] =	YES;										//更新升级成功														
-							Status = 1;											
-						}
-						else{
-							send_buf[1] =	NO;												//失败 出错
-						}
-						if(FLASH_DATA->TOTAL_BYTE == 1145) send_buf[3] = NO;
-						USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));	
-						buffer_clear(send_buf);					
+						upgrepInform(&Status);
 					}
 					break;
 				
 				
-				case 1:
-					if(USB_Recive_Buffer[0] == UPGRED_DATA_PACK){
-						FLASH_DATA->PACK_NUM_PC = USB_Recive_Buffer[1];			//本次PC发来数据包的编号
-						FLASH_DATA->PACK_NUM_PC <<= 8;
-						FLASH_DATA->PACK_NUM_PC += USB_Recive_Buffer[2];
-							
-						send_buf[0] = AKC_PACK;		//应答包头
-						
-						if(FLASH_DATA->PACK_NUM_PC == FLASH_DATA->PACK_NUM ){		//数据包编号正确 
-							
-								//不是最后一包数据 或 最后一包数据恰好装满
-								if(FLASH_DATA->PACK_NUM_PC != FLASH_DATA->TOTAL_PACK || (FLASH_DATA->TOTAL_BYTE%61)==0){	
-									for(int i = 3; i < 64 ; i++){
-										FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_END] = USB_Recive_Buffer[i];
-										FLASH_DATA->DATA_8_INDEX_END++;
-										if(FLASH_DATA->DATA_8_INDEX_END >= MAX_round_queue) FLASH_DATA->DATA_8_INDEX_END -= MAX_round_queue;   //循环队列							
-										FLASH_DATA->DATA_8_LEN++;			  //队列长度+1				
-									}							
-								
-								}
-								else{			// 最后一包数据 且 未装满 
-									for(int i = 3; i < ((FLASH_DATA->TOTAL_BYTE%61)+3); i++){
-										FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_END] = USB_Recive_Buffer[i];
-										FLASH_DATA->DATA_8_INDEX_END++;
-										if(FLASH_DATA->DATA_8_INDEX_END >= MAX_round_queue) FLASH_DATA->DATA_8_INDEX_END -= MAX_round_queue;    //循环队列
-										FLASH_DATA->DATA_8_LEN++;
-									}
-								}
-								send_buf[1] = YES;  			 // 本次传输没出错
-								
-								
-								if(FLASH_DATA->PACK_NUM == FLASH_DATA->TOTAL_PACK){					//如果本次是 最后一包数据  进入状态机的下一个状态
-									Status = 2;
-									FLASH_DATA->PACK_NUM = 0;								
-								}	
-								FLASH_DATA->PACK_NUM++;			// 当前准备接受的数据包编号+1
-						}
-						
-						else{
-							send_buf[1] = NO;			 //	升级失败
-						}
-						USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));	  
-						buffer_clear(send_buf);									
+				case 1:																							//状态1 升级信息数据传输 
+					if(USB_Recive_Buffer[0] == UPGRED_DATA_PACK){		  //收到数据包
+						 upgrepData(&Status);
 					}
-					
 					break;
 					
 				case 2:
-					 
+					
 					break;
 			
 			}
+			buffer_clear(USB_Recive_Buffer);			// 清空 USB 存储来自PC发来的数据的数组 
+			
 			
 			//如果循环队列里面字节数 大于flash的一页了
 			if(FLASH_DATA->DATA_8_LEN >= FLASH_PAGE_SIZE){		
@@ -240,40 +169,160 @@ int main(void)
 				DATA32_Init(FLASH_DATA->DATA_32);									//写入数据后把对应数组全部复位 0XFF
 				FLASH_ADDR += FLASH_PAGE_SIZE;							//flash地址 向后移动一页	
 			}
-			
-			
 			//如果已经接受了最后一包的数据 且 所有数据并没有刚好写满最后一页			
 			if(Status == 2 && (FLASH_DATA->TOTAL_BYTE%FLASH_PAGE_SIZE) != 0){					
 				transform_extra(FLASH_DATA);
 				Flash_WriteData(FLASH_ADDR,FLASH_DATA->DATA_32); //写入flash	
 				DATA32_Init(FLASH_DATA->DATA_32);									//写入数据后把对应数组全部复位 0XFF
+				
 			}
 
-			buffer_clear(USB_Recive_Buffer);			// 清空 USB 存储来自PC发来的数据的数组 
-			
-			
-			if(Status == 2){
-				FLASH_ADDR = APP_FLASH_START;
-				for(int i = 0;i < 32; i++){
-					Flash_ReadData(FLASH_ADDR,send_buf,64);
-					FLASH_ADDR += 64;
-					USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
-					buffer_clear(send_buf);
-					HAL_Delay(1000);
-				}
-			}
-	
-			
 		}
+	
+		if(Status == 2){
+			
+			send_buf[0] = UPGRED_STATUS_PACK;
+			if(FLASH_DATA->CHECKSUM == 0){			//checksum正确
+				send_buf[1] = YES;
+				Status = 3;		
+				
+			}
+			else {
+				send_buf[1]= NO;							//checksum 错误
+				Status = 0;
+				FLASH_STRUCT_Init(FLASH_DATA);
+			}
+			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));			
+			buffer_clear(send_buf);
+			
+			HAL_Delay(1000);
+			if(Status == 3) UserAppStart();
+		}		
+		
+//    /* USER CODE BEGIN 3 */
 		
 
-		
-    /* USER CODE BEGIN 3 */
-		/* USER CODE END 3 */
+//		/* USER CODE END 3 */
   }
 
 }
 
+
+void upgrepInform(uint8_t *Status){
+						
+		FLASH_DATA->TOTAL_BYTE = USB_Recive_Buffer[1];				//  本次升级 一共有多少个字节
+		FLASH_DATA->TOTAL_BYTE <<= 8;
+		FLASH_DATA->TOTAL_BYTE += USB_Recive_Buffer[2];					//STM32是小端模式  左移地址变大
+		FLASH_DATA->TOTAL_BYTE <<= 8;
+		FLASH_DATA->TOTAL_BYTE += USB_Recive_Buffer[3];
+		FLASH_DATA->TOTAL_BYTE <<= 8;
+		FLASH_DATA->TOTAL_BYTE += USB_Recive_Buffer[4];					
+		
+		if((FLASH_DATA->TOTAL_BYTE)%61 == 0)												//计算出 一共有多少包 一包有61个字节 装数据
+			FLASH_DATA->TOTAL_PACK = (FLASH_DATA->TOTAL_BYTE)/61;
+		else 
+			FLASH_DATA->TOTAL_PACK = ((FLASH_DATA->TOTAL_BYTE)/61)+1;
+		
+		if((FLASH_DATA->TOTAL_BYTE)%1024 == 0)											// 计算出一共有多少页  STM32F1 一页有1024个字节
+			FLASH_DATA->TOTAL_PAGE = FLASH_DATA->TOTAL_BYTE/1024;
+		else
+			FLASH_DATA->TOTAL_PAGE = (FLASH_DATA->TOTAL_BYTE/1024)+1;
+		
+		
+		FLASH_DATA->CHECKSUM = USB_Recive_Buffer[5];							//校验和						
+		
+		send_buf[0] = AKC_PACK;
+		if(FLASH_DATA->TOTAL_BYTE != 0 && FLASH_DATA->TOTAL_BYTE < (128-16)*1024){						//总字节数 不能等于0 不能大于 芯片可用flash 芯片共有128K bootloader占用了16K
+			send_buf[1] =	YES;										//更新升级成功														
+			*Status = 1;											
+		}
+		else{
+			send_buf[1] =	NO;												//失败 出错
+		}
+		USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));	
+		buffer_clear(send_buf);		
+}
+
+
+void upgrepData(uint8_t * Status){
+		FLASH_DATA->PACK_NUM_PC = USB_Recive_Buffer[1];			//本次PC发来数据包的编号
+		FLASH_DATA->PACK_NUM_PC <<= 8;
+		FLASH_DATA->PACK_NUM_PC += USB_Recive_Buffer[2];
+			
+		send_buf[0] = AKC_PACK;		//应答包头
+		
+		if(FLASH_DATA->PACK_NUM_PC == FLASH_DATA->PACK_NUM ){		//数据包编号正确 
+			
+				//不是最后一包数据 或 最后一包数据恰好装满
+				if(FLASH_DATA->PACK_NUM_PC != FLASH_DATA->TOTAL_PACK || (FLASH_DATA->TOTAL_BYTE%61)==0){	
+					for(int i = 3; i < 64 ; i++){
+						FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_END] = USB_Recive_Buffer[i];
+						FLASH_DATA->CHECKSUM += USB_Recive_Buffer[i];
+						FLASH_DATA->DATA_8_INDEX_END++;
+						if(FLASH_DATA->DATA_8_INDEX_END >= MAX_round_queue) FLASH_DATA->DATA_8_INDEX_END -= MAX_round_queue;   //循环队列							
+						FLASH_DATA->DATA_8_LEN++;			  //队列长度+1				
+					}							
+				
+				}
+				else{			// 最后一包数据 且 未装满 
+					for(int i = 3; i < ((FLASH_DATA->TOTAL_BYTE%61)+3); i++){
+						FLASH_DATA->DATA_8[FLASH_DATA->DATA_8_INDEX_END] = USB_Recive_Buffer[i];
+						FLASH_DATA->CHECKSUM += USB_Recive_Buffer[i];
+						FLASH_DATA->DATA_8_INDEX_END++;
+						if(FLASH_DATA->DATA_8_INDEX_END >= MAX_round_queue) FLASH_DATA->DATA_8_INDEX_END -= MAX_round_queue;    //循环队列
+						FLASH_DATA->DATA_8_LEN++;
+					}
+				}
+				send_buf[1] = YES;  			 // 本次传输没出错
+				
+				
+				if(FLASH_DATA->PACK_NUM == FLASH_DATA->TOTAL_PACK){					//如果本次是 最后一包数据  进入状态机的下一个状态
+					*Status = 2;
+					FLASH_DATA->PACK_NUM = 0;								
+				}	
+				FLASH_DATA->PACK_NUM++;			// 当前准备接受的数据包编号+1
+		}						
+		else{
+			send_buf[1] = NO;			 //	升级失败
+		}
+		USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));	  
+		buffer_clear(send_buf);			
+}
+
+
+
+
+void UserAppStart(void)
+
+{
+//		__set_PRIMASK(1);																	
+	  if (((*(__IO uint32_t*)ApplicationAddress) & 0x2FFE0000 ) == 0x20000000)
+    { 
+      /* Jump to user application */
+//				__ASM("CPSID  I");	
+      JumpAddress = *(__IO uint32_t*) (ApplicationAddress + 4);
+
+      Jump_To_Application = (pFunction) JumpAddress;
+
+      /* Initialize user application's Stack Pointer */
+
+      __set_MSP(*(__IO uint32_t*) ApplicationAddress);
+
+	
+		for(int i = 0; i < 8; i++)
+
+		{			
+
+			NVIC->ICER[i] = 0xFFFFFFFF;	/* 关闭中断*/
+
+			NVIC->ICPR[i] = 0xFFFFFFFF;	/* 清楚中断标志位 */
+
+		}
+
+      Jump_To_Application();
+    }
+
+}
 
 
 

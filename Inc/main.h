@@ -173,7 +173,7 @@ extern "C" {
 
 /* Exported functions ------------------------------------------------------- */
 
-#define APP_FLASH_START ADDR_FLASH_PAGE_17
+#define APP_FLASH_START ADDR_FLASH_PAGE_16
 
 #define UPGRED_READY_PACK 0x66     //升级就绪包头
 #define UPGRED_INFORM_PACK 0x77			//升级信息包头
@@ -219,7 +219,9 @@ typedef struct ST_DATA{
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+void UserAppStart(void);
+void upgrepInform(uint8_t *Status);
+void upgrepData(uint8_t * Status);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
