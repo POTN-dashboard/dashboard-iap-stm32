@@ -94,6 +94,8 @@ int main(void)
   /* USER CODE BEGIN 1 */
 	static uint8_t Status = 0;
 	static int flag = 0;				//记录时间
+	uint8_t flash_flag = 0; //判断当前 是否进入app模式的标志位
+	
   /* USER CODE END 1 */
   
   /* MCU Configuration--------------------------------------------------------*/
@@ -116,6 +118,26 @@ int main(void)
   MX_GPIO_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
+	
+	Flash_ReadData(ADDR_FLASH_PAGE_16-1,&flash_flag,1);
+	if(flash_flag == 0x55){
+		while(1){
+//			
+//			HAL_Delay(5000);	
+//			for(int i = 0; i < 192; i++){
+//			Flash_ReadData(ADDR_FLASH_PAGE_16+i*64,send_buf,64);
+//			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
+//			buffer_clear(send_buf);
+//			HAL_Delay(100);			
+//			}
+//			while(1);
+				
+		UserAppStart();
+		__set_FAULTMASK(1); 
+		NVIC_SystemReset();				//系统软件复位			
+		};
+			
+	}
 	
 	FLASH_STRUCT_Init(FLASH_DATA);
 
@@ -170,7 +192,7 @@ int main(void)
 				FLASH_ADDR += FLASH_PAGE_SIZE;							//flash地址 向后移动一页	
 			}
 			//如果已经接受了最后一包的数据 且 所有数据并没有刚好写满最后一页			
-			if(Status == 2 && (FLASH_DATA->TOTAL_BYTE%FLASH_PAGE_SIZE) != 0){					
+			if(Status == 2 && (FLASH_DATA->TOTAL_BYTE%FLASH_PAGE_SIZE) != 0){				
 				transform_extra(FLASH_DATA);
 				Flash_WriteData(FLASH_ADDR,FLASH_DATA->DATA_32); //写入flash	
 				DATA32_Init(FLASH_DATA->DATA_32);									//写入数据后把对应数组全部复位 0XFF
@@ -194,9 +216,11 @@ int main(void)
 			}
 			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));			
 			buffer_clear(send_buf);
-			
+			Flash_WriteWord(ADDR_FLASH_PAGE_15,0x55555555,255);
 			HAL_Delay(1000);
-			if(Status == 3) UserAppStart();
+			__set_FAULTMASK(1); 
+			NVIC_SystemReset();				//系统软件复位			
+			while(1);
 		}		
 		
 //    /* USER CODE BEGIN 3 */
@@ -252,6 +276,7 @@ void upgrepData(uint8_t * Status){
 		send_buf[0] = AKC_PACK;		//应答包头
 		
 		if(FLASH_DATA->PACK_NUM_PC == FLASH_DATA->PACK_NUM ){		//数据包编号正确 
+				send_buf[1] = YES;  			 // 本次传输没出错
 			
 				//不是最后一包数据 或 最后一包数据恰好装满
 				if(FLASH_DATA->PACK_NUM_PC != FLASH_DATA->TOTAL_PACK || (FLASH_DATA->TOTAL_BYTE%61)==0){	
@@ -273,7 +298,7 @@ void upgrepData(uint8_t * Status){
 						FLASH_DATA->DATA_8_LEN++;
 					}
 				}
-				send_buf[1] = YES;  			 // 本次传输没出错
+
 				
 				
 				if(FLASH_DATA->PACK_NUM == FLASH_DATA->TOTAL_PACK){					//如果本次是 最后一包数据  进入状态机的下一个状态
