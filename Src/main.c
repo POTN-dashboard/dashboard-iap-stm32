@@ -48,7 +48,35 @@ extern USBD_HandleTypeDef hUsbDeviceFS; //????USB????
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+#define RegBase  (0x40005C00L)  /* USB_IP Peripheral Registers base address */
+/* Control register */
+#define CNTR    ((__IO unsigned *)(RegBase + 0x40))
+#define _SetCNTR(wRegValue)  (*CNTR   = (uint16_t)wRegValue)
+/* GetCNTR */
+#define _GetCNTR()   ((uint16_t) *CNTR)
 
+#define GPIOA_ODR_Addr    (GPIOA_BASE+12) //0x4001080C 
+
+#define BITBAND(addr, bitnum) ((addr & 0xF0000000)+0x2000000+((addr &0xFFFFF)<<5)+(bitnum<<2)) 
+#define MEM_ADDR(addr)  *((volatile unsigned long  *)(addr)) 
+#define BIT_ADDR(addr, bitnum)   MEM_ADDR(BITBAND(addr, bitnum)) 
+#define PAout(n)   BIT_ADDR(GPIOA_ODR_Addr,n)  //输出 
+ 
+void usb_port_set(uint8_t enable) 
+{ 
+		__HAL_RCC_GPIOA_CLK_ENABLE();           	//开启GPIOA时钟	 
+		if(enable){ 
+			GPIOA->CRH&=0XFFF00FFF; 
+			GPIOA->CRH|=0X00044000; 
+			_SetCNTR(_GetCNTR()&(~(1<<1)));
+		}
+		else { 
+			_SetCNTR(_GetCNTR()|(1<<1)); 
+			GPIOA->CRH&=0XFFF00FFF; 
+			GPIOA->CRH|=0X00033000; 
+			PAout(12)=0; 
+		} 
+} 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -111,27 +139,18 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+	usb_port_set(1);		//USB控制寄存器 打开USB		
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-	
 	Flash_ReadData(ADDR_FLASH_PAGE_16-1,&flash_flag,1);
 	if(flash_flag == 0x55){
 		while(1){
-//			
-//			HAL_Delay(5000);	
-//			for(int i = 0; i < 192; i++){
-//			Flash_ReadData(ADDR_FLASH_PAGE_16+i*64,send_buf,64);
-//			USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
-//			buffer_clear(send_buf);
-//			HAL_Delay(100);			
-//			}
-//			while(1);
-				
+		usb_port_set(0);		//USB控制寄存器 关闭USB			
+
 		UserAppStart();
 		__set_FAULTMASK(1); 
 		NVIC_SystemReset();				//系统软件复位			
