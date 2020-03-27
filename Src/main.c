@@ -93,8 +93,8 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 	static uint8_t Status = 0;
-	static int flag = 0;				//记录时间
-	uint8_t flash_flag = 0; //判断当前 是否进入app模式的标志位
+	static int time_flag = 0;				//记录时间
+	uint8_t flash_flag = 0; //判断当前 是否进入app模式的标志位 从flash第15页最后一个字中读取出来
 	
   /* USER CODE END 1 */
   
@@ -149,9 +149,9 @@ int main(void)
   {
 		
 		if(Status == 0){					//未接受到升级信息包 之前 每隔一秒 向上位机发送 准备就绪
-			flag++;		
-			if(flag > 10){					//10*100ms = 1s
-				flag = 0;
+			time_flag++;		
+			if(time_flag > 10){					//10*100ms = 1s
+				time_flag = 0;
 				send_buf[0] = UPGRED_READY_PACK;   //初始化完成 通知上位机 升级就绪
 				USBD_CUSTOM_HID_SendReport(&hUsbDeviceFS, send_buf, sizeof(send_buf));
 				buffer_clear(send_buf);										
